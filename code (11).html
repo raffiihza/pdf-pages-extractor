@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Page Extractor</title>
+    <!-- Load pdf-lib library from CDN -->
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <!-- Optional: Load fontkit for potential font handling if needed, though often not required for simple extraction -->
+    <!-- <script src="https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script> -->
+
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+            color: #333;
+            max-width: 600px;
+            margin: 20px auto;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #555;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="file"],
+        input[type="text"],
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box; /* Include padding in width */
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .status-info {
+            background-color: #e2e3e5;
+            color: #383d41;
+        }
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .instructions {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: -5px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>PDF Page Extractor</h1>
+
+    <div class="control-group">
+        <label for="pdfInput">1. Choose PDF File:</label>
+        <input type="file" id="pdfInput" accept=".pdf">
+    </div>
+
+    <div class="control-group">
+        <label for="pageRangeInput">2. Enter Pages/Ranges to Extract:</label>
+        <input type="text" id="pageRangeInput" placeholder="e.g., 1-3, 5, 8-10">
+        <div class="instructions">Use commas to separate pages or ranges. Use hyphens for ranges. Pages are 1-based.</div>
+    </div>
+
+    <div class="control-group">
+        <button id="extractButton">3. Extract & Download</button>
+    </div>
+
+    <div id="status">Select a file and enter page ranges.</div>
+
+    <script>
+        const { PDFDocument, rgb } = PDFLib; // Make PDFLib objects available
+
+        const pdfInput = document.getElementById('pdfInput');
+        const pageRangeInput = document.getElementById('pageRangeInput');
+        const extractButton = document.getElementById('extractButton');
+        const statusDiv = document.getElementById('status');
+
+        // --- Helper Function to Parse Page Ranges ---
+        function parsePageRanges(rangeString, totalPages) {
+            const pageIndices = new Set(); // Use a Set to automatically handle duplicates
+            if (!rangeString) {
+                throw new Error("Page range string is empty.");
+            }
+
+            const parts = rangeString.split(',');
+
+            for (const part of parts) {
+                const trimmedPart = part.trim();
+                if (!trimmedPart) continue; // Skip empty parts
+
+                if (trimmedPart.includes('-')) {
+                    // Handle range
+                    const range = trimmedPart.split('-');
+                    if (range.length !== 2) {
+                        throw new Error(`Invalid range format: "${trimmedPart}"`);
+                    }
+                    const start = parseInt(range[0].trim(), 10);
+                    const end = parseInt(range[1].trim(), 10);
+
+                    if (isNaN(start) || isNaN(end)) {
+                        throw new Error(`Non-numeric page found in range: "${trimmedPart}"`);
+                    }
+                    if (start <= 0 || end <= 0) {
+                        throw new Error(`Page numbers must be positive: "${trimmedPart}"`);
+                    }
+                    if (start > end) {
+                        throw new Error(`Start page is greater than end page in range: "${trimmedPart}"`);
+                    }
+                    if (start > totalPages || end > totalPages) {
+                         throw new Error(`Page number out of range (max ${totalPages}): "${trimmedPart}"`);
+                    }
+
+                    for (let i = start; i <= end; i++) {
+                        pageIndices.add(i - 1); // Convert to 0-based index
+                    }
+                } else {
+                    // Handle single page
+                    const pageNum = parseInt(trimmedPart, 10);
+                    if (isNaN(pageNum)) {
+                        throw new Error(`Non-numeric page found: "${trimmedPart}"`);
+                    }
+                     if (pageNum <= 0) {
+                        throw new Error(`Page numbers must be positive: "${trimmedPart}"`);
+                    }
+                    if (pageNum > totalPages) {
+                        throw new Error(`Page number out of range (max ${totalPages}): "${trimmedPart}"`);
+                    }
+                    pageIndices.add(pageNum - 1); // Convert to 0-based index
+                }
+            }
+
+            if (pageIndices.size === 0) {
+                throw new Error("No valid pages selected.");
+            }
+
+            // Convert Set back to a sorted array
+            return Array.from(pageIndices).sort((a, b) => a - b);
+        }
+
+        // --- Main Extraction Logic ---
+        async function extractPages() {
+            setStatus("Processing...", "info");
+            extractButton.disabled = true;
+
+            const file = pdfInput.files[0];
+            const pageRangeStr = pageRangeInput.value;
+
+            if (!file) {
+                setStatus("Please select a PDF file.", "error");
+                extractButton.disabled = false;
+                return;
+            }
+            if (!pageRangeStr) {
+                setStatus("Please enter the pages or ranges to extract.", "error");
+                extractButton.disabled = false;
+                return;
+            }
+
+            try {
+                setStatus("Reading file...", "info");
+                const fileReader = new FileReader();
+
+                fileReader.onload = async (event) => {
+                    try {
+                        const pdfBytes = event.target.result; // ArrayBuffer
+
+                        setStatus("Loading PDF document...", "info");
+                        const pdfDoc = await PDFDocument.load(pdfBytes);
+
+                        // Optional: Register fontkit instance if complex font handling is ever needed
+                        // if (window.fontkit) {
+                        //     pdfDoc.registerFontkit(window.fontkit);
+                        // }
+
+                        const totalPages = pdfDoc.getPageCount();
+                        setStatus(`Parsing page ranges (Total pages: ${totalPages})...`, "info");
+
+                        let pagesToCopyIndices;
+                        try {
+                             pagesToCopyIndices = parsePageRanges(pageRangeStr, totalPages);
+                        } catch (parseError) {
+                            setStatus(`Error parsing page ranges: ${parseError.message}`, "error");
+                            extractButton.disabled = false;
+                            return;
+                        }
+
+                        if (pagesToCopyIndices.length === 0) {
+                             setStatus("No valid pages selected or found.", "error");
+                             extractButton.disabled = false;
+                             return;
+                        }
+
+                        setStatus(`Creating new PDF with ${pagesToCopyIndices.length} selected page(s)...`, "info");
+                        const newPdfDoc = await PDFDocument.create();
+
+                        // Copy the selected pages
+                        const copiedPages = await newPdfDoc.copyPages(pdfDoc, pagesToCopyIndices);
+
+                        // Add the copied pages to the new document
+                        copiedPages.forEach((page) => {
+                            newPdfDoc.addPage(page);
+                        });
+
+                        setStatus("Saving new PDF...", "info");
+                        const newPdfBytes = await newPdfDoc.save();
+
+                        setStatus("Download starting...", "success");
+                        downloadPdf(newPdfBytes, `extracted_${file.name}`);
+
+                    } catch (error) {
+                        console.error("Error during PDF processing:", error);
+                        setStatus(`Error: ${error.message}`, "error");
+                    } finally {
+                         extractButton.disabled = false; // Re-enable button
+                    }
+                };
+
+                fileReader.onerror = () => {
+                    setStatus("Error reading file.", "error");
+                    extractButton.disabled = false;
+                };
+
+                fileReader.readAsArrayBuffer(file); // Read file as ArrayBuffer
+
+            } catch (error) {
+                 console.error("General error:", error);
+                 setStatus(`An unexpected error occurred: ${error.message}`, "error");
+                 extractButton.disabled = false;
+            }
+        }
+
+        // --- Helper Function to Trigger Download ---
+        function downloadPdf(bytes, filename) {
+            const blob = new Blob([bytes], { type: 'application/pdf' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link); // Required for Firefox
+            link.click();
+            document.body.removeChild(link); // Clean up
+            // Optional: Revoke the object URL after a delay
+            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        }
+
+        // --- Helper Function to Update Status ---
+        function setStatus(message, type = "info") {
+            statusDiv.textContent = message;
+            statusDiv.className = `status-${type}`; // Remove previous classes
+        }
+
+        // --- Attach Event Listener ---
+        extractButton.addEventListener('click', extractPages);
+
+        // --- Initial Status ---
+        setStatus("Select a file and enter page ranges.", "info");
+
+    </script>
+
+</body>
+</html>
