@@ -102,7 +102,13 @@
     </div>
 
     <div class="control-group">
-        <button id="extractButton">3. Extract & Download</button>
+        <label for="customFilenameInput">3. Custom Filename (Optional):</label>
+        <input type="text" id="customFilenameInput" placeholder="e.g., my-extracted-pages">
+        <div class="instructions">If empty, will use "extracted_[original-filename]". Extension (.pdf) will be added automatically.</div>
+    </div>
+
+    <div class="control-group">
+        <button id="extractButton">4. Extract & Download</button>
     </div>
 
     <div id="status">Select a file and enter page ranges.</div>
@@ -112,6 +118,7 @@
 
         const pdfInput = document.getElementById('pdfInput');
         const pageRangeInput = document.getElementById('pageRangeInput');
+        const customFilenameInput = document.getElementById('customFilenameInput');
         const extractButton = document.getElementById('extractButton');
         const statusDiv = document.getElementById('status');
 
@@ -177,6 +184,29 @@
             return Array.from(pageIndices).sort((a, b) => a - b);
         }
 
+        // --- Helper Function to Generate Download Filename ---
+        function generateFilename(customName, originalFilename) {
+            let filename;
+            
+            if (customName && customName.trim()) {
+                // Use custom filename, sanitize it
+                filename = customName.trim()
+                    .replace(/[<>:"/\\|?*]/g, '_') // Replace invalid filename characters
+                    .replace(/\s+/g, '_'); // Replace spaces with underscores
+                
+                // Remove .pdf extension if user included it (we'll add it back)
+                if (filename.toLowerCase().endsWith('.pdf')) {
+                    filename = filename.slice(0, -4);
+                }
+            } else {
+                // Use default pattern with original filename
+                filename = `extracted_${originalFilename.replace('.pdf', '')}`;
+            }
+            
+            // Ensure the filename ends with .pdf
+            return `${filename}.pdf`;
+        }
+
         // --- Main Extraction Logic ---
         async function extractPages() {
             setStatus("Processing...", "info");
@@ -184,6 +214,7 @@
 
             const file = pdfInput.files[0];
             const pageRangeStr = pageRangeInput.value;
+            const customFilename = customFilenameInput.value;
 
             if (!file) {
                 setStatus("Please select a PDF file.", "error");
@@ -245,7 +276,8 @@
                         const newPdfBytes = await newPdfDoc.save();
 
                         setStatus("Download starting...", "success");
-                        downloadPdf(newPdfBytes, `extracted_${file.name}`);
+                        const downloadFilename = generateFilename(customFilename, file.name);
+                        downloadPdf(newPdfBytes, downloadFilename);
 
                     } catch (error) {
                         console.error("Error during PDF processing:", error);
