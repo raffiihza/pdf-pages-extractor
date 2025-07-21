@@ -102,7 +102,13 @@
     </div>
 
     <div class="control-group">
-        <button id="extractButton">3. Extract & Download</button>
+        <label for="outputFileNameInput">3. (Optional) Enter Custom Filename:</label>
+        <input type="text" id="outputFileNameInput" placeholder="e.g., my-extracted-document">
+        <div class="instructions">The .pdf extension will be added automatically. If left blank, the original filename will be used.</div>
+    </div>
+
+    <div class="control-group">
+        <button id="extractButton">4. Extract & Download</button>
     </div>
 
     <div id="status">Select a file and enter page ranges.</div>
@@ -112,6 +118,7 @@
 
         const pdfInput = document.getElementById('pdfInput');
         const pageRangeInput = document.getElementById('pageRangeInput');
+        const outputFileNameInput = document.getElementById('outputFileNameInput'); // Added for custom name
         const extractButton = document.getElementById('extractButton');
         const statusDiv = document.getElementById('status');
 
@@ -184,6 +191,7 @@
 
             const file = pdfInput.files[0];
             const pageRangeStr = pageRangeInput.value;
+            const customFileName = outputFileNameInput.value.trim(); // Read the custom filename
 
             if (!file) {
                 setStatus("Please select a PDF file.", "error");
@@ -206,11 +214,6 @@
 
                         setStatus("Loading PDF document...", "info");
                         const pdfDoc = await PDFDocument.load(pdfBytes);
-
-                        // Optional: Register fontkit instance if complex font handling is ever needed
-                        // if (window.fontkit) {
-                        //     pdfDoc.registerFontkit(window.fontkit);
-                        // }
 
                         const totalPages = pdfDoc.getPageCount();
                         setStatus(`Parsing page ranges (Total pages: ${totalPages})...`, "info");
@@ -244,8 +247,18 @@
                         setStatus("Saving new PDF...", "info");
                         const newPdfBytes = await newPdfDoc.save();
 
+                        // **MODIFIED SECTION**: Determine the final filename
+                        let finalFileName;
+                        if (customFileName) {
+                            // If user provided a name, use it. Add .pdf if missing.
+                            finalFileName = customFileName.endsWith('.pdf') ? customFileName : `${customFileName}.pdf`;
+                        } else {
+                            // Otherwise, use the default name
+                            finalFileName = `extracted_${file.name}`;
+                        }
+
                         setStatus("Download starting...", "success");
-                        downloadPdf(newPdfBytes, `extracted_${file.name}`);
+                        downloadPdf(newPdfBytes, finalFileName); // Use the determined filename
 
                     } catch (error) {
                         console.error("Error during PDF processing:", error);
@@ -285,7 +298,9 @@
         // --- Helper Function to Update Status ---
         function setStatus(message, type = "info") {
             statusDiv.textContent = message;
-            statusDiv.className = `status-${type}`; // Remove previous classes
+            // Reset class list and add the new one
+            statusDiv.className = 'status';
+            statusDiv.classList.add(`status-${type}`);
         }
 
         // --- Attach Event Listener ---
