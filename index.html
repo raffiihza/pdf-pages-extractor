@@ -95,6 +95,12 @@
         <input type="file" id="pdfInput" accept=".pdf">
     </div>
 
+    <!-- PDF Preview Section -->
+    <div class="control-group" id="pdfPreviewContainer" style="display:none;">
+        <label>PDF Preview:</label>
+        <iframe id="pdfPreview" width="100%" height="400px" style="border:1px solid #ccc; border-radius:4px;"></iframe>
+    </div>
+
     <div class="control-group">
         <label for="pageRangeInput">2. Enter Pages/Ranges to Extract:</label>
         <input type="text" id="pageRangeInput" placeholder="e.g., 1-3, 5, 8-10">
@@ -108,7 +114,10 @@
     </div>
 
     <div class="control-group">
-        <button id="extractButton">4. Extract & Download</button>
+        <button id="extractButton">4. Extract</button>
+    </div>
+    <div class="control-group" id="downloadGroup" style="display:none;">
+        <button id="downloadButton">Download Extracted PDF</button>
     </div>
 
     <div id="status">Select a file and enter page ranges.</div>
@@ -121,6 +130,24 @@
         const outputFileNameInput = document.getElementById('outputFileNameInput'); // Added for custom name
         const extractButton = document.getElementById('extractButton');
         const statusDiv = document.getElementById('status');
+        const pdfPreviewContainer = document.getElementById('pdfPreviewContainer');
+        const pdfPreview = document.getElementById('pdfPreview');
+        const downloadGroup = document.getElementById('downloadGroup');
+        const downloadButton = document.getElementById('downloadButton');
+        let lastExtractedPdfBytes = null;
+        let lastExtractedFileName = '';
+        // --- PDF Preview Handler ---
+        pdfInput.addEventListener('change', function() {
+            const file = pdfInput.files[0];
+            if (file && file.type === 'application/pdf') {
+                const fileURL = URL.createObjectURL(file);
+                pdfPreview.src = fileURL;
+                pdfPreviewContainer.style.display = 'block';
+            } else {
+                pdfPreview.src = '';
+                pdfPreviewContainer.style.display = 'none';
+            }
+        });
 
         // --- Helper Function to Parse Page Ranges ---
         function parsePageRanges(rangeString, totalPages) {
@@ -257,8 +284,15 @@
                             finalFileName = `extracted_${file.name}`;
                         }
 
-                        setStatus("Download starting...", "success");
-                        downloadPdf(newPdfBytes, finalFileName); // Use the determined filename
+                        setStatus("Previewing extracted PDF...", "success");
+                        // Preview the extracted PDF
+                        const extractedPdfURL = URL.createObjectURL(new Blob([newPdfBytes], { type: 'application/pdf' }));
+                        pdfPreview.src = extractedPdfURL;
+                        pdfPreviewContainer.style.display = 'block';
+                        // Simpan hasil ekstraksi untuk download manual
+                        lastExtractedPdfBytes = newPdfBytes;
+                        lastExtractedFileName = finalFileName;
+                        downloadGroup.style.display = 'block';
 
                     } catch (error) {
                         console.error("Error during PDF processing:", error);
@@ -291,9 +325,18 @@
             document.body.appendChild(link); // Required for Firefox
             link.click();
             document.body.removeChild(link); // Clean up
-            // Optional: Revoke the object URL after a delay
             setTimeout(() => URL.revokeObjectURL(link.href), 1000);
         }
+
+        // --- Download Button Handler ---
+        downloadButton.addEventListener('click', function() {
+            if (lastExtractedPdfBytes && lastExtractedFileName) {
+                setStatus("Download starting...", "success");
+                downloadPdf(lastExtractedPdfBytes, lastExtractedFileName);
+            } else {
+                setStatus("No extracted PDF to download.", "error");
+            }
+        });
 
         // --- Helper Function to Update Status ---
         function setStatus(message, type = "info") {
